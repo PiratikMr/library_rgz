@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<DialogPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="example.org.library.controller.BookDialogController"
+            styleClass="dialog-pane"
+            prefWidth="480">
+
+    <headerText>Заполните информацию о книге</headerText>
+
+    <content>
+        <VBox spacing="14" styleClass="dialog-content">
+            <padding>
+                <Insets top="10" right="10" bottom="10" left="10"/>
+            </padding>
+
+            <!-- Название -->
+            <VBox spacing="4">
+                <Label text="Название *" styleClass="field-label"/>
+                <TextField fx:id="titleField" promptText="Введите название книги"
+                           styleClass="dialog-field"/>
+            </VBox>
+
+            <!-- Автор -->
+            <VBox spacing="4">
+                <Label text="Автор *" styleClass="field-label"/>
+                <TextField fx:id="authorField" promptText="Введите имя автора"
+                           styleClass="dialog-field"/>
+            </VBox>
+
+            <!-- Жанр и Год — в одной строке -->
+            <HBox spacing="14">
+                <VBox spacing="4" HBox.hgrow="ALWAYS">
+                    <Label text="Жанр" styleClass="field-label"/>
+                    <ComboBox fx:id="genreBox" styleClass="dialog-combo" maxWidth="Infinity"/>
+                </VBox>
+                <VBox spacing="4" prefWidth="120">
+                    <Label text="Год издания *" styleClass="field-label"/>
+                    <TextField fx:id="yearField" promptText="Год"
+                               styleClass="dialog-field" maxWidth="120"/>
+                </VBox>
+            </HBox>
+
+            <!-- Статус -->
+            <VBox spacing="4">
+                <Label text="Статус" styleClass="field-label"/>
+                <ComboBox fx:id="statusBox" styleClass="dialog-combo" maxWidth="Infinity"/>
+            </VBox>
+
+            <!-- Кому выдана (показывается только при статусе "На руках") -->
+            <HBox fx:id="borrowerBox" spacing="4" alignment="CENTER_LEFT">
+                <VBox spacing="4" HBox.hgrow="ALWAYS">
+                    <Label text="Кому выдана *" styleClass="field-label"/>
+                    <TextField fx:id="borrowerField" promptText="Имя получателя"
+                               styleClass="dialog-field"/>
+                </VBox>
+            </HBox>
+
+            <!-- Примечания -->
+            <VBox spacing="4">
+                <Label text="Примечания" styleClass="field-label"/>
+                <TextArea fx:id="notesArea" promptText="Дополнительная информация..."
+                          styleClass="dialog-textarea" prefRowCount="3" wrapText="true"/>
+            </VBox>
+
+            <!-- Ошибка валидации -->
+            <Label fx:id="errorLabel" text="" styleClass="error-label"
+                   visible="false" managed="false"/>
+
+        </VBox>
+    </content>
+
+    <buttonTypes>
+        <ButtonType text="Сохранить" buttonData="OK_DONE"/>
+        <ButtonType text="Отмена" buttonData="CANCEL_CLOSE"/>
+    </buttonTypes>
+
+</DialogPane>

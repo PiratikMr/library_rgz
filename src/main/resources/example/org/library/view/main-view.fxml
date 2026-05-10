@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.text.Text?>
+
+<BorderPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="example.org.library.controller.MainController"
+            styleClass="root-pane"
+            prefWidth="960" prefHeight="640">
+
+    <!-- Верхняя секция: заголовок + кнопка добавления + фильтры -->
+    <top>
+        <VBox spacing="0" styleClass="header-section">
+            <!-- Шапка: заголовок слева, кнопка «Добавить» справа -->
+            <HBox alignment="CENTER_LEFT" spacing="12" styleClass="title-bar">
+                <padding>
+                    <Insets top="18" right="28" bottom="14" left="28"/>
+                </padding>
+                <Label text="Личная Библиотека" styleClass="header-title"/>
+                <Label fx:id="bookCountLabel" text="0 книг" styleClass="book-count"/>
+                <Region HBox.hgrow="ALWAYS"/>
+                <Button fx:id="addButton" text="+ Добавить книгу" onAction="#onAddBook" styleClass="btn-add"/>
+            </HBox>
+
+            <!-- Панель фильтров -->
+            <HBox spacing="10" alignment="CENTER_LEFT" styleClass="filter-bar">
+                <padding>
+                    <Insets top="10" right="28" bottom="12" left="28"/>
+                </padding>
+                <TextField fx:id="searchField" promptText="Поиск по названию или автору..."
+                           styleClass="search-field" HBox.hgrow="ALWAYS"/>
+                <ComboBox fx:id="genreFilter" styleClass="filter-combo" prefWidth="200"/>
+                <ComboBox fx:id="statusFilter" styleClass="filter-combo" prefWidth="160"/>
+                <Button text="Сбросить" onAction="#onClearFilters" styleClass="btn-clear"/>
+            </HBox>
+        </VBox>
+    </top>
+
+    <!-- Центр: таблица книг -->
+    <center>
+        <VBox styleClass="table-section">
+            <padding>
+                <Insets top="0" right="28" bottom="0" left="28"/>
+            </padding>
+
+            <TableView fx:id="bookTable" VBox.vgrow="ALWAYS" styleClass="book-table">
+                <columns>
+                    <TableColumn fx:id="titleColumn" text="Название" prefWidth="220" minWidth="150"/>
+                    <TableColumn fx:id="authorColumn" text="Автор" prefWidth="180" minWidth="120"/>
+                    <TableColumn fx:id="genreColumn" text="Жанр" prefWidth="150" minWidth="100"/>
+                    <TableColumn fx:id="yearColumn" text="Год" prefWidth="65" minWidth="55"/>
+                    <TableColumn fx:id="statusColumn" text="Статус" prefWidth="115" minWidth="90"/>
+                    <TableColumn fx:id="borrowerColumn" text="Кому выдана" prefWidth="150" minWidth="100"/>
+                </columns>
+                <columnResizePolicy>
+                    <TableView fx:constant="CONSTRAINED_RESIZE_POLICY"/>
+                </columnResizePolicy>
+            </TableView>
+        </VBox>
+    </center>
+
+    <!-- Нижняя панель: редактирование + удаление -->
+    <bottom>
+        <HBox spacing="10" alignment="CENTER_RIGHT" styleClass="bottom-bar">
+            <padding>
+                <Insets top="10" right="28" bottom="16" left="28"/>
+            </padding>
+            <Button fx:id="editButton" text="Редактировать" onAction="#onEditBook" styleClass="btn-edit"/>
+            <Button fx:id="deleteButton" text="Удалить" onAction="#onDeleteBook" styleClass="btn-delete"/>
+        </HBox>
+    </bottom>
+
+</BorderPane>
