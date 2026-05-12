@@ -1,9 +1,9 @@
 package example.org.library.controller;
 
-import example.org.library.model.Book;
-import example.org.library.model.BookStatus;
-import example.org.library.model.Genre;
-import example.org.library.service.DataService;
+import example.org.library.exception.LibraryException;
+import example.org.library.model.*;
+import example.org.library.search.*;
+import example.org.library.service.LibraryService;
 
 import javafx.beans.property.SimpleStringProperty;
 import javafx.collections.FXCollections;
@@ -14,377 +14,639 @@ import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.KeyCodeCombination;
-import javafx.scene.input.KeyCombination;
 import javafx.scene.input.MouseButton;
 import javafx.stage.Modality;
-import javafx.stage.Stage;
 
 import java.io.IOException;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * Контроллер главного окна приложения.
- * Управляет таблицей книг, фильтрацией и операциями CRUD.
+ * Управляет тремя вкладками: Каталог, Читатели, Выдачи.
  */
 public class MainController {
 
-    // --- FXML-элементы ---
-    @FXML
-    private TextField searchField;
-    @FXML
-    private ComboBox<String> genreFilter;
-    @FXML
-    private ComboBox<String> statusFilter;
-    @FXML
-    private Label bookCountLabel;
+    // --- Общие ---
+    @FXML private TabPane mainTabPane;
+    @FXML private Label overdueLabel;
 
-    @FXML
-    private TableView<Book> bookTable;
-    @FXML
-    private TableColumn<Book, String> titleColumn;
-    @FXML
-    private TableColumn<Book, String> authorColumn;
-    @FXML
-    private TableColumn<Book, String> genreColumn;
-    @FXML
-    private TableColumn<Book, String> yearColumn;
-    @FXML
-    private TableColumn<Book, String> statusColumn;
-    @FXML
-    private TableColumn<Book, String> borrowerColumn;
+    // --- Каталог ---
+    @FXML private ComboBox<SearchStrategy> searchStrategyBox;
+    @FXML private TextField catalogSearchField;
+    @FXML private ComboBox<String> genreFilter;
+    @FXML private ComboBox<String> statusFilter;
+    @FXML private TableView<LibraryItem> catalogTable;
+    @FXML private TableColumn<LibraryItem, String> itemTypeColumn;
+    @FXML private TableColumn<LibraryItem, String> itemTitleColumn;
+    @FXML private TableColumn<LibraryItem, String> itemAuthorColumn;
+    @FXML private TableColumn<LibraryItem, String> itemGenreColumn;
+    @FXML private TableColumn<LibraryItem, String> itemYearColumn;
+    @FXML private TableColumn<LibraryItem, String> itemDetailsColumn;
+    @FXML private TableColumn<LibraryItem, String> itemStatusColumn;
+    @FXML private Button addItemButton;
+    @FXML private Button editItemButton;
+    @FXML private Button deleteItemButton;
+    @FXML private Label catalogCountLabel;
 
-    @FXML
-    private Button addButton;
-    @FXML
-    private Button editButton;
-    @FXML
-    private Button deleteButton;
+    // --- Читатели ---
+    @FXML private TextField readerSearchField;
+    @FXML private TableView<Reader> readerTable;
+    @FXML private TableColumn<Reader, String> readerNameColumn;
+    @FXML private TableColumn<Reader, String> readerPhoneColumn;
+    @FXML private TableColumn<Reader, String> readerEmailColumn;
+    @FXML private TableColumn<Reader, String> readerLoansColumn;
+    @FXML private Button addReaderButton;
+    @FXML private Button editReaderButton;
+    @FXML private Button deleteReaderButton;
+    @FXML private Label readerCountLabel;
+
+    // --- Выдачи ---
+    @FXML private ComboBox<String> loanStatusFilter;
+    @FXML private TableView<Loan> loanTable;
+    @FXML private TableColumn<Loan, String> loanBookColumn;
+    @FXML private TableColumn<Loan, String> loanReaderColumn;
+    @FXML private TableColumn<Loan, String> loanBorrowDateColumn;
+    @FXML private TableColumn<Loan, String> loanDueDateColumn;
+    @FXML private TableColumn<Loan, String> loanReturnDateColumn;
+    @FXML private TableColumn<Loan, String> loanStatusColumn;
+    @FXML private Button issueLoanButton;
+    @FXML private Button returnLoanButton;
+    @FXML private Label loanCountLabel;
 
     // --- Данные ---
-    private final ObservableList<Book> books = FXCollections.observableArrayList();
-    private FilteredList<Book> filteredBooks;
-    private final DataService dataService = new DataService();
+    private final LibraryService libraryService = new LibraryService();
+    private final ObservableList<LibraryItem> items = FXCollections.observableArrayList();
+    private final ObservableList<Reader> readers = FXCollections.observableArrayList();
+    private final ObservableList<Loan> loans = FXCollections.observableArrayList();
+    private FilteredList<LibraryItem> filteredItems;
+    private FilteredList<Reader> filteredReaders;
+    private FilteredList<Loan> filteredLoans;
 
-    /**
-     * Инициализация контроллера. Вызывается автоматически после загрузки FXML.
-     */
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("dd.MM.yyyy");
+
     @FXML
     public void initialize() {
-        // Настройка колонок таблицы
-        setupTableColumns();
+        setupCatalogTab();
+        setupReadersTab();
+        setupLoansTab();
+        loadAllData();
+        updateOverdueBadge();
 
-        // Загрузка данных из файла
-        List<Book> loaded = dataService.load();
-        books.addAll(loaded);
+        // Обновление данных при переключении вкладок
+        mainTabPane.getSelectionModel().selectedItemProperty().addListener((obs, o, n) -> {
+            loadAllData();
+            updateOverdueBadge();
+        });
+    }
 
-        // Настройка фильтрации
-        setupFilters();
+    // ==================== КАТАЛОГ ====================
 
-        // Настройка кнопок
-        setupButtons();
+    private void setupCatalogTab() {
+        // Стратегии поиска
+        SearchStrategy titleStrategy = new TitleSearchStrategy();
+        SearchStrategy authorStrategy = new AuthorSearchStrategy();
+        SearchStrategy genreStrategy = new GenreSearchStrategy();
+        SearchStrategy yearStrategy = new YearSearchStrategy();
+        SearchStrategy compositeStrategy = new CompositeSearchStrategy(
+                titleStrategy, authorStrategy, genreStrategy, yearStrategy);
+
+        searchStrategyBox.getItems().addAll(
+                compositeStrategy, titleStrategy, authorStrategy, genreStrategy, yearStrategy);
+        searchStrategyBox.setValue(compositeStrategy);
+
+        // Фильтры
+        genreFilter.getItems().add("Все жанры");
+        for (Genre g : Genre.values()) genreFilter.getItems().add(g.getDisplayName());
+        genreFilter.setValue("Все жанры");
+
+        statusFilter.getItems().add("Все статусы");
+        for (BookStatus s : BookStatus.values()) statusFilter.getItems().add(s.getDisplayName());
+        statusFilter.setValue("Все статусы");
+
+        // Колонки таблицы (полиморфный вызов getItemType и getDetails)
+        itemTypeColumn.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().getItemType()));
+        itemTitleColumn.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().getTitle()));
+        itemAuthorColumn.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().getAuthorName()));
+        itemGenreColumn.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().getGenre().getDisplayName()));
+        itemYearColumn.setCellValueFactory(d -> new SimpleStringProperty(String.valueOf(d.getValue().getYear())));
+        itemDetailsColumn.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().getDetails()));
+        itemStatusColumn.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().getStatus().getDisplayName()));
+
+        // Цветовая индикация строк
+        catalogTable.setRowFactory(tv -> new TableRow<>() {
+            @Override
+            protected void updateItem(LibraryItem item, boolean empty) {
+                super.updateItem(item, empty);
+                getStyleClass().removeAll("row-in-library", "row-lent-out", "row-lost", "row-damaged");
+                if (empty || item == null) return;
+                switch (item.getStatus()) {
+                    case LENT_OUT -> getStyleClass().add("row-lent-out");
+                    case LOST -> getStyleClass().add("row-lost");
+                    case DAMAGED -> getStyleClass().add("row-damaged");
+                    default -> getStyleClass().add("row-in-library");
+                }
+            }
+        });
+
+        // Фильтрация
+        filteredItems = new FilteredList<>(items, p -> true);
+        catalogSearchField.textProperty().addListener((obs, o, n) -> applyCatalogFilters());
+        searchStrategyBox.valueProperty().addListener((obs, o, n) -> applyCatalogFilters());
+        genreFilter.valueProperty().addListener((obs, o, n) -> applyCatalogFilters());
+        statusFilter.valueProperty().addListener((obs, o, n) -> applyCatalogFilters());
+
+        SortedList<LibraryItem> sortedItems = new SortedList<>(filteredItems);
+        sortedItems.comparatorProperty().bind(catalogTable.comparatorProperty());
+        catalogTable.setItems(sortedItems);
+
+        // Кнопки
+        editItemButton.disableProperty().bind(catalogTable.getSelectionModel().selectedItemProperty().isNull());
+        deleteItemButton.disableProperty().bind(catalogTable.getSelectionModel().selectedItemProperty().isNull());
 
         // Двойной клик для редактирования
-        bookTable.setOnMouseClicked(event -> {
-            if (event.getButton() == MouseButton.PRIMARY && event.getClickCount() == 2) {
-                Book selected = bookTable.getSelectionModel().getSelectedItem();
-                if (selected != null) {
-                    editBook(selected);
-                }
+        catalogTable.setOnMouseClicked(e -> {
+            if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) {
+                LibraryItem sel = catalogTable.getSelectionModel().getSelectedItem();
+                if (sel != null) editItem(sel);
             }
         });
 
-        // Placeholder для пустой таблицы
-        bookTable.setPlaceholder(new Label("Библиотека пуста. Нажмите «Добавить» для добавления книги."));
-
-        // Обновить счётчик
-        updateBookCount();
+        catalogTable.setPlaceholder(new Label("Каталог пуст. Нажмите «+ Добавить» для добавления."));
     }
 
-    /**
-     * Настройка горячих клавиш. Вызывается из LibraryApp после создания Scene.
-     */
-    public void setupHotkeys(Scene scene) {
-        scene.getAccelerators().put(
-                new KeyCodeCombination(KeyCode.N, KeyCombination.CONTROL_DOWN),
-                this::onAddBook);
-        scene.getAccelerators().put(
-                new KeyCodeCombination(KeyCode.DELETE),
-                this::onDeleteBook);
-        scene.getAccelerators().put(
-                new KeyCodeCombination(KeyCode.ENTER),
-                () -> {
-                    // Только если фокус не на поле поиска
-                    if (!searchField.isFocused()) {
-                        Book selected = bookTable.getSelectionModel().getSelectedItem();
-                        if (selected != null) {
-                            editBook(selected);
-                        }
-                    }
-                });
-    }
+    private void applyCatalogFilters() {
+        String query = catalogSearchField.getText();
+        SearchStrategy strategy = searchStrategyBox.getValue();
+        String genre = genreFilter.getValue();
+        String status = statusFilter.getValue();
 
-    private void setupTableColumns() {
-        titleColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getTitle()));
-        authorColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getAuthor()));
-        genreColumn.setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getGenre().getDisplayName()));
-        yearColumn.setCellValueFactory(data -> new SimpleStringProperty(String.valueOf(data.getValue().getYear())));
-        statusColumn
-                .setCellValueFactory(data -> new SimpleStringProperty(data.getValue().getStatus().getDisplayName()));
-        borrowerColumn.setCellValueFactory(data -> {
-            String borrower = data.getValue().getBorrower();
-            return new SimpleStringProperty(borrower != null ? borrower : "—");
-        });
-
-        // Цветовая индикация статуса в строках таблицы
-        bookTable.setRowFactory(tv -> new TableRow<>() {
-            @Override
-            protected void updateItem(Book book, boolean empty) {
-                super.updateItem(book, empty);
-                if (empty || book == null) {
-                    setStyle("");
-                    getStyleClass().removeAll("row-in-library", "row-lent-out");
-                } else {
-                    getStyleClass().removeAll("row-in-library", "row-lent-out");
-                    if (book.getStatus() == BookStatus.LENT_OUT) {
-                        getStyleClass().add("row-lent-out");
-                    } else {
-                        getStyleClass().add("row-in-library");
-                    }
-                }
+        filteredItems.setPredicate(item -> {
+            if (query != null && !query.isEmpty() && strategy != null) {
+                if (!strategy.matches(item, query)) return false;
             }
-        });
-    }
-
-    private void setupFilters() {
-        // Заполнение ComboBox жанров
-        genreFilter.getItems().add("Все жанры");
-        for (Genre g : Genre.values()) {
-            genreFilter.getItems().add(g.getDisplayName());
-        }
-        genreFilter.setValue("Все жанры");
-
-        // Заполнение ComboBox статусов
-        statusFilter.getItems().add("Все статусы");
-        for (BookStatus s : BookStatus.values()) {
-            statusFilter.getItems().add(s.getDisplayName());
-        }
-        statusFilter.setValue("Все статусы");
-
-        // FilteredList
-        filteredBooks = new FilteredList<>(books, p -> true);
-
-        // Обновление фильтра при изменении любого из критериев
-        searchField.textProperty().addListener((obs, oldVal, newVal) -> applyFilters());
-        genreFilter.valueProperty().addListener((obs, oldVal, newVal) -> applyFilters());
-        statusFilter.valueProperty().addListener((obs, oldVal, newVal) -> applyFilters());
-
-        // SortedList для сортировки по клику на заголовок колонки
-        SortedList<Book> sortedBooks = new SortedList<>(filteredBooks);
-        sortedBooks.comparatorProperty().bind(bookTable.comparatorProperty());
-
-        bookTable.setItems(sortedBooks);
-    }
-
-    private void applyFilters() {
-        String searchText = searchField.getText();
-        String selectedGenre = genreFilter.getValue();
-        String selectedStatus = statusFilter.getValue();
-
-        filteredBooks.setPredicate(book -> {
-            // Фильтр по тексту поиска (название или автор)
-            if (searchText != null && !searchText.isEmpty()) {
-                String lower = searchText.toLowerCase();
-                boolean matchTitle = book.getTitle().toLowerCase().contains(lower);
-                boolean matchAuthor = book.getAuthor().toLowerCase().contains(lower);
-                if (!matchTitle && !matchAuthor) {
-                    return false;
-                }
+            if (genre != null && !"Все жанры".equals(genre)) {
+                if (!item.getGenre().getDisplayName().equals(genre)) return false;
             }
-
-            // Фильтр по жанру
-            if (selectedGenre != null && !"Все жанры".equals(selectedGenre)) {
-                if (!book.getGenre().getDisplayName().equals(selectedGenre)) {
-                    return false;
-                }
+            if (status != null && !"Все статусы".equals(status)) {
+                if (!item.getStatus().getDisplayName().equals(status)) return false;
             }
-
-            // Фильтр по статусу
-            if (selectedStatus != null && !"Все статусы".equals(selectedStatus)) {
-                if (!book.getStatus().getDisplayName().equals(selectedStatus)) {
-                    return false;
-                }
-            }
-
             return true;
         });
-
-        updateBookCount();
-    }
-
-    private void setupButtons() {
-        editButton.disableProperty().bind(
-                bookTable.getSelectionModel().selectedItemProperty().isNull());
-        deleteButton.disableProperty().bind(
-                bookTable.getSelectionModel().selectedItemProperty().isNull());
-    }
-
-    private void updateBookCount() {
-        int total = books.size();
-        int shown = filteredBooks.size();
-        if (total == shown) {
-            bookCountLabel.setText(total + " " + pluralBooks(total));
-        } else {
-            bookCountLabel.setText(shown + " из " + total);
-        }
-    }
-
-    private String pluralBooks(int n) {
-        int mod10 = n % 10;
-        int mod100 = n % 100;
-        if (mod10 == 1 && mod100 != 11)
-            return "книга";
-        if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
-            return "книги";
-        return "книг";
-    }
-
-    // --- Обработчики кнопок ---
-
-    @FXML
-    private void onAddBook() {
-        Book newBook = openBookDialog(null);
-        if (newBook != null) {
-            books.add(newBook);
-            saveData();
-            updateBookCount();
-        }
+        updateCatalogCount();
     }
 
     @FXML
-    private void onEditBook() {
-        Book selected = bookTable.getSelectionModel().getSelectedItem();
-        if (selected != null) {
-            editBook(selected);
-        }
-    }
-
-    private void editBook(Book book) {
-        Book edited = openBookDialog(book);
-        if (edited != null) {
-            // Обновляем поля существующей книги
-            book.setTitle(edited.getTitle());
-            book.setAuthor(edited.getAuthor());
-            book.setGenre(edited.getGenre());
-            book.setYear(edited.getYear());
-            book.setStatus(edited.getStatus());
-            book.setBorrower(edited.getBorrower());
-            book.setNotes(edited.getNotes());
-
-            // Обновляем отображение таблицы
-            int idx = books.indexOf(book);
-            if (idx >= 0) {
-                books.set(idx, book);
-            }
-            saveData();
-        }
-    }
-
-    @FXML
-    private void onDeleteBook() {
-        Book selected = bookTable.getSelectionModel().getSelectedItem();
-        if (selected == null)
-            return;
-
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
-        alert.setTitle("Подтверждение удаления");
-        alert.setHeaderText("Удалить книгу?");
-        alert.setContentText("«" + selected.getTitle() + "» — " + selected.getAuthor());
-
-        // Стилизуем кнопки диалога
-        ButtonType yesButton = new ButtonType("Удалить", ButtonBar.ButtonData.OK_DONE);
-        ButtonType noButton = new ButtonType("Отмена", ButtonBar.ButtonData.CANCEL_CLOSE);
-        alert.getButtonTypes().setAll(yesButton, noButton);
-
-        // Применяем CSS к диалогу
-        alert.getDialogPane().getStylesheets().add(
-                getClass().getResource("/example/org/library/style.css").toExternalForm());
-        alert.getDialogPane().getStyleClass().add("custom-alert");
-
-        Optional<ButtonType> result = alert.showAndWait();
-        if (result.isPresent() && result.get() == yesButton) {
-            books.remove(selected);
-            saveData();
-            updateBookCount();
-        }
-    }
-
-    @FXML
-    private void onClearFilters() {
-        searchField.clear();
+    private void onClearCatalogFilters() {
+        catalogSearchField.clear();
         genreFilter.setValue("Все жанры");
         statusFilter.setValue("Все статусы");
     }
 
-    /**
-     * Открывает диалог добавления/редактирования книги.
-     * 
-     * @param book книга для редактирования (null для новой)
-     * @return отредактированная/новая книга или null при отмене
-     */
-    private Book openBookDialog(Book book) {
+    @FXML
+    private void onAddItem() {
+        LibraryItem newItem = openItemDialog(null);
+        if (newItem != null) {
+            try {
+                libraryService.saveItem(newItem);
+                loadAllData();
+            } catch (LibraryException e) {
+                showError("Ошибка", e.getMessage());
+            }
+        }
+    }
+
+    @FXML
+    private void onEditItem() {
+        LibraryItem selected = catalogTable.getSelectionModel().getSelectedItem();
+        if (selected != null) editItem(selected);
+    }
+
+    private void editItem(LibraryItem item) {
+        LibraryItem edited = openItemDialog(item);
+        if (edited != null) {
+            try {
+                libraryService.saveItem(edited);
+                loadAllData();
+            } catch (LibraryException e) {
+                showError("Ошибка", e.getMessage());
+            }
+        }
+    }
+
+    @FXML
+    private void onDeleteItem() {
+        LibraryItem selected = catalogTable.getSelectionModel().getSelectedItem();
+        if (selected == null) return;
+
+        if (confirmDelete("Удалить элемент?", "«" + selected.getTitle() + "» — " + selected.getAuthorName())) {
+            try {
+                libraryService.deleteItem(selected.getId());
+                loadAllData();
+            } catch (LibraryException e) {
+                showError("Ошибка удаления", e.getMessage());
+            }
+        }
+    }
+
+    private LibraryItem openItemDialog(LibraryItem item) {
         try {
             FXMLLoader loader = new FXMLLoader(
-                    getClass().getResource("/example/org/library/view/book-dialog.fxml"));
+                    getClass().getResource("/example/org/library/view/item-dialog.fxml"));
             DialogPane dialogPane = loader.load();
-
-            BookDialogController controller = loader.getController();
+            ItemDialogController controller = loader.getController();
 
             Dialog<ButtonType> dialog = new Dialog<>();
             dialog.setDialogPane(dialogPane);
             dialog.initModality(Modality.APPLICATION_MODAL);
-            dialog.setTitle(book == null ? "Добавление книги" : "Редактирование книги");
+            dialog.setTitle(item == null ? "Добавление элемента" : "Редактирование элемента");
 
-            if (book != null) {
-                controller.setBook(book);
-            }
+            if (item != null) controller.setItem(item);
 
-            // Стилизация
             dialogPane.getStylesheets().add(
                     getClass().getResource("/example/org/library/style.css").toExternalForm());
 
-            // Валидация при нажатии "Сохранить"
             Button saveBtn = (Button) dialogPane.lookupButton(
                     dialogPane.getButtonTypes().stream()
                             .filter(bt -> bt.getButtonData() == ButtonBar.ButtonData.OK_DONE)
                             .findFirst().orElse(null));
-
             if (saveBtn != null) {
                 saveBtn.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
-                    if (!controller.isValid()) {
-                        event.consume(); // Предотвращаем закрытие при невалидных данных
-                    }
+                    if (!controller.isValid()) event.consume();
                 });
             }
 
             Optional<ButtonType> result = dialog.showAndWait();
             if (result.isPresent() && result.get().getButtonData() == ButtonBar.ButtonData.OK_DONE) {
-                return controller.getBook();
+                return controller.getItem();
             }
         } catch (IOException e) {
-            e.printStackTrace();
-            Alert errorAlert = new Alert(Alert.AlertType.ERROR);
-            errorAlert.setTitle("Ошибка");
-            errorAlert.setHeaderText("Не удалось открыть диалог");
-            errorAlert.setContentText(e.getMessage());
-            errorAlert.showAndWait();
+            showError("Ошибка", "Не удалось открыть диалог: " + e.getMessage());
         }
         return null;
     }
 
-    private void saveData() {
-        dataService.save(books);
+    // ==================== ЧИТАТЕЛИ ====================
+
+    private void setupReadersTab() {
+        readerNameColumn.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().getFullName()));
+        readerPhoneColumn.setCellValueFactory(d -> {
+            String phone = d.getValue().getPhone();
+            return new SimpleStringProperty(phone != null ? phone : "—");
+        });
+        readerEmailColumn.setCellValueFactory(d -> {
+            String email = d.getValue().getEmail();
+            return new SimpleStringProperty(email != null ? email : "—");
+        });
+        readerLoansColumn.setCellValueFactory(d -> {
+            int count = libraryService.getActiveLoansCount(d.getValue().getId());
+            return new SimpleStringProperty(String.valueOf(count));
+        });
+
+        filteredReaders = new FilteredList<>(readers, p -> true);
+        readerSearchField.textProperty().addListener((obs, o, n) -> applyReaderFilter());
+
+        SortedList<Reader> sortedReaders = new SortedList<>(filteredReaders);
+        sortedReaders.comparatorProperty().bind(readerTable.comparatorProperty());
+        readerTable.setItems(sortedReaders);
+
+        editReaderButton.disableProperty().bind(readerTable.getSelectionModel().selectedItemProperty().isNull());
+        deleteReaderButton.disableProperty().bind(readerTable.getSelectionModel().selectedItemProperty().isNull());
+
+        readerTable.setOnMouseClicked(e -> {
+            if (e.getButton() == MouseButton.PRIMARY && e.getClickCount() == 2) {
+                Reader sel = readerTable.getSelectionModel().getSelectedItem();
+                if (sel != null) editReader(sel);
+            }
+        });
+
+        readerTable.setPlaceholder(new Label("Нет читателей. Нажмите «+ Добавить читателя»."));
+    }
+
+    private void applyReaderFilter() {
+        String query = readerSearchField.getText();
+        filteredReaders.setPredicate(reader -> {
+            if (query == null || query.isEmpty()) return true;
+            return reader.getFullName().toLowerCase().contains(query.toLowerCase());
+        });
+        updateReaderCount();
+    }
+
+    @FXML
+    private void onAddReader() {
+        Reader newReader = openReaderDialog(null);
+        if (newReader != null) {
+            try {
+                libraryService.saveReader(newReader);
+                loadAllData();
+            } catch (LibraryException e) {
+                showError("Ошибка", e.getMessage());
+            }
+        }
+    }
+
+    @FXML
+    private void onEditReader() {
+        Reader selected = readerTable.getSelectionModel().getSelectedItem();
+        if (selected != null) editReader(selected);
+    }
+
+    private void editReader(Reader reader) {
+        Reader edited = openReaderDialog(reader);
+        if (edited != null) {
+            try {
+                libraryService.saveReader(edited);
+                loadAllData();
+            } catch (LibraryException e) {
+                showError("Ошибка", e.getMessage());
+            }
+        }
+    }
+
+    @FXML
+    private void onDeleteReader() {
+        Reader selected = readerTable.getSelectionModel().getSelectedItem();
+        if (selected == null) return;
+
+        if (confirmDelete("Удалить читателя?", selected.getFullName())) {
+            try {
+                libraryService.deleteReader(selected.getId());
+                loadAllData();
+            } catch (LibraryException e) {
+                showError("Ошибка удаления", e.getMessage());
+            }
+        }
+    }
+
+    private Reader openReaderDialog(Reader reader) {
+        try {
+            FXMLLoader loader = new FXMLLoader(
+                    getClass().getResource("/example/org/library/view/reader-dialog.fxml"));
+            DialogPane dialogPane = loader.load();
+            ReaderDialogController controller = loader.getController();
+
+            Dialog<ButtonType> dialog = new Dialog<>();
+            dialog.setDialogPane(dialogPane);
+            dialog.initModality(Modality.APPLICATION_MODAL);
+            dialog.setTitle(reader == null ? "Добавление читателя" : "Редактирование читателя");
+
+            if (reader != null) controller.setReader(reader);
+
+            dialogPane.getStylesheets().add(
+                    getClass().getResource("/example/org/library/style.css").toExternalForm());
+
+            Button saveBtn = (Button) dialogPane.lookupButton(
+                    dialogPane.getButtonTypes().stream()
+                            .filter(bt -> bt.getButtonData() == ButtonBar.ButtonData.OK_DONE)
+                            .findFirst().orElse(null));
+            if (saveBtn != null) {
+                saveBtn.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+                    if (!controller.isValid()) event.consume();
+                });
+            }
+
+            Optional<ButtonType> result = dialog.showAndWait();
+            if (result.isPresent() && result.get().getButtonData() == ButtonBar.ButtonData.OK_DONE) {
+                return controller.getReader();
+            }
+        } catch (IOException e) {
+            showError("Ошибка", "Не удалось открыть диалог: " + e.getMessage());
+        }
+        return null;
+    }
+
+    // ==================== ВЫДАЧИ ====================
+
+    private void setupLoansTab() {
+        loanStatusFilter.getItems().addAll("Все", "Активные", "Просроченные", "Завершённые");
+        loanStatusFilter.setValue("Все");
+
+        loanBookColumn.setCellValueFactory(d -> {
+            Optional<LibraryItem> item = libraryService.findItemById(d.getValue().getItemId());
+            return new SimpleStringProperty(item.map(LibraryItem::getTitle).orElse("Удалена"));
+        });
+        loanReaderColumn.setCellValueFactory(d -> {
+            Optional<Reader> reader = libraryService.findReaderById(d.getValue().getReaderId());
+            return new SimpleStringProperty(reader.map(Reader::getFullName).orElse("Удалён"));
+        });
+        loanBorrowDateColumn.setCellValueFactory(d -> new SimpleStringProperty(
+                d.getValue().getBorrowDate() != null ? d.getValue().getBorrowDate().format(DATE_FMT) : "—"));
+        loanDueDateColumn.setCellValueFactory(d -> new SimpleStringProperty(
+                d.getValue().getDueDate() != null ? d.getValue().getDueDate().format(DATE_FMT) : "—"));
+        loanReturnDateColumn.setCellValueFactory(d -> new SimpleStringProperty(
+                d.getValue().getReturnDate() != null ? d.getValue().getReturnDate().format(DATE_FMT) : "—"));
+        loanStatusColumn.setCellValueFactory(d -> new SimpleStringProperty(d.getValue().getStatusText()));
+
+        // Подсветка просроченных выдач
+        loanTable.setRowFactory(tv -> new TableRow<>() {
+            @Override
+            protected void updateItem(Loan loan, boolean empty) {
+                super.updateItem(loan, empty);
+                getStyleClass().removeAll("row-overdue", "row-returned");
+                if (empty || loan == null) return;
+                if (loan.isOverdue() && loan.isActive()) getStyleClass().add("row-overdue");
+                else if (!loan.isActive()) getStyleClass().add("row-returned");
+            }
+        });
+
+        filteredLoans = new FilteredList<>(loans, p -> true);
+        loanStatusFilter.valueProperty().addListener((obs, o, n) -> applyLoanFilter());
+
+        SortedList<Loan> sortedLoans = new SortedList<>(filteredLoans);
+        sortedLoans.comparatorProperty().bind(loanTable.comparatorProperty());
+        loanTable.setItems(sortedLoans);
+
+        // Кнопка «Вернуть» доступна только для активных (невозвращённых) выдач
+        returnLoanButton.disableProperty().bind(
+                javafx.beans.binding.Bindings.createBooleanBinding(
+                        () -> {
+                            Loan sel = loanTable.getSelectionModel().getSelectedItem();
+                            return sel == null || !sel.isActive();
+                        },
+                        loanTable.getSelectionModel().selectedItemProperty()
+                )
+        );
+
+        loanTable.setPlaceholder(new Label("Нет записей о выдачах."));
+    }
+
+    private void applyLoanFilter() {
+        String status = loanStatusFilter.getValue();
+        filteredLoans.setPredicate(loan -> {
+            if (status == null || "Все".equals(status)) return true;
+            return switch (status) {
+                case "Активные" -> loan.isActive() && !loan.isOverdue();
+                case "Просроченные" -> loan.isActive() && loan.isOverdue();
+                case "Завершённые" -> !loan.isActive();
+                default -> true;
+            };
+        });
+        updateLoanCount();
+    }
+
+    @FXML
+    private void onIssueLoan() {
+        // Только книги со статусом "В библиотеке" доступны для выдачи
+        List<LibraryItem> available = libraryService.getAllItems().stream()
+                .filter(i -> i.getStatus() == BookStatus.IN_LIBRARY)
+                .collect(Collectors.toList());
+        List<Reader> allReaders = libraryService.getAllReaders();
+
+        if (available.isEmpty()) {
+            showError("Нет доступных книг", "Все книги выданы или недоступны.");
+            return;
+        }
+        if (allReaders.isEmpty()) {
+            showError("Нет читателей", "Сначала добавьте хотя бы одного читателя.");
+            return;
+        }
+
+        try {
+            FXMLLoader loader = new FXMLLoader(
+                    getClass().getResource("/example/org/library/view/loan-dialog.fxml"));
+            DialogPane dialogPane = loader.load();
+            LoanDialogController controller = loader.getController();
+            controller.setData(available, allReaders);
+
+            Dialog<ButtonType> dialog = new Dialog<>();
+            dialog.setDialogPane(dialogPane);
+            dialog.initModality(Modality.APPLICATION_MODAL);
+            dialog.setTitle("Выдача книги");
+
+            dialogPane.getStylesheets().add(
+                    getClass().getResource("/example/org/library/style.css").toExternalForm());
+
+            Button saveBtn = (Button) dialogPane.lookupButton(
+                    dialogPane.getButtonTypes().stream()
+                            .filter(bt -> bt.getButtonData() == ButtonBar.ButtonData.OK_DONE)
+                            .findFirst().orElse(null));
+            if (saveBtn != null) {
+                saveBtn.addEventFilter(javafx.event.ActionEvent.ACTION, event -> {
+                    if (!controller.isValid()) event.consume();
+                });
+            }
+
+            Optional<ButtonType> result = dialog.showAndWait();
+            if (result.isPresent() && result.get().getButtonData() == ButtonBar.ButtonData.OK_DONE) {
+                try {
+                    libraryService.borrowItem(
+                            controller.getSelectedItemId(),
+                            controller.getSelectedReaderId(),
+                            controller.getDueDate());
+                    loadAllData();
+                    updateOverdueBadge();
+                } catch (LibraryException e) {
+                    showError("Ошибка выдачи", e.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            showError("Ошибка", "Не удалось открыть диалог: " + e.getMessage());
+        }
+    }
+
+    @FXML
+    private void onReturnLoan() {
+        Loan selected = loanTable.getSelectionModel().getSelectedItem();
+        if (selected == null) return;
+
+
+
+        Optional<LibraryItem> item = libraryService.findItemById(selected.getItemId());
+        String title = item.map(LibraryItem::getTitle).orElse("Книга");
+
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Возврат книги");
+        alert.setHeaderText("Вернуть книгу?");
+        alert.setContentText("«" + title + "»");
+        styleAlert(alert);
+
+        ButtonType yesBtn = new ButtonType("Вернуть", ButtonBar.ButtonData.OK_DONE);
+        ButtonType noBtn = new ButtonType("Отмена", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(yesBtn, noBtn);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        if (result.isPresent() && result.get() == yesBtn) {
+            try {
+                libraryService.returnItem(selected.getId());
+                loadAllData();
+                updateOverdueBadge();
+            } catch (LibraryException e) {
+                showError("Ошибка возврата", e.getMessage());
+            }
+        }
+    }
+
+    // ==================== ОБЩИЕ МЕТОДЫ ====================
+
+    private void loadAllData() {
+        items.setAll(libraryService.getAllItems());
+        readers.setAll(libraryService.getAllReaders());
+        loans.setAll(libraryService.getAllLoans());
+        updateCatalogCount();
+        updateReaderCount();
+        updateLoanCount();
+    }
+
+    private void updateCatalogCount() {
+        catalogCountLabel.setText(filteredItems.size() + " из " + items.size());
+    }
+
+    private void updateReaderCount() {
+        readerCountLabel.setText(filteredReaders.size() + " из " + readers.size());
+    }
+
+    private void updateLoanCount() {
+        loanCountLabel.setText(filteredLoans.size() + " из " + loans.size());
+    }
+
+    private void updateOverdueBadge() {
+        int overdue = libraryService.getOverdueLoans().size();
+        if (overdue > 0) {
+            overdueLabel.setText("⚠ Просрочено: " + overdue);
+            overdueLabel.setVisible(true);
+            overdueLabel.setManaged(true);
+        } else {
+            overdueLabel.setVisible(false);
+            overdueLabel.setManaged(false);
+        }
+    }
+
+    private boolean confirmDelete(String header, String content) {
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION);
+        alert.setTitle("Подтверждение удаления");
+        alert.setHeaderText(header);
+        alert.setContentText(content);
+        styleAlert(alert);
+
+        ButtonType yesBtn = new ButtonType("Удалить", ButtonBar.ButtonData.OK_DONE);
+        ButtonType noBtn = new ButtonType("Отмена", ButtonBar.ButtonData.CANCEL_CLOSE);
+        alert.getButtonTypes().setAll(yesBtn, noBtn);
+
+        Optional<ButtonType> result = alert.showAndWait();
+        return result.isPresent() && result.get() == yesBtn;
+    }
+
+    private void showError(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle(title);
+        alert.setHeaderText(title);
+        alert.setContentText(message);
+        styleAlert(alert);
+        alert.showAndWait();
+    }
+
+    private void styleAlert(Alert alert) {
+        alert.getDialogPane().getStylesheets().add(
+                getClass().getResource("/example/org/library/style.css").toExternalForm());
+        alert.getDialogPane().getStyleClass().add("custom-alert");
+    }
+
+    /**
+     * Настройка горячих клавиш.
+     */
+    public void setupHotkeys(Scene scene) {
+        // Горячие клавиши убраны для простоты — можно добавить позже
     }
 }

@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.geometry.Insets?>
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+
+<DialogPane xmlns:fx="http://javafx.com/fxml"
+            fx:controller="example.org.library.controller.LoanDialogController"
+            styleClass="dialog-pane"
+            prefWidth="460">
+
+    <headerText>Выдача книги читателю</headerText>
+
+    <content>
+        <VBox spacing="14" styleClass="dialog-content">
+            <padding>
+                <Insets top="10" right="10" bottom="10" left="10"/>
+            </padding>
+
+            <VBox spacing="4">
+                <Label text="Книга *" styleClass="field-label"/>
+                <ComboBox fx:id="itemBox" styleClass="dialog-combo"
+                          maxWidth="Infinity" promptText="Выберите книгу"/>
+            </VBox>
+
+            <VBox spacing="4">
+                <Label text="Читатель *" styleClass="field-label"/>
+                <ComboBox fx:id="readerBox" styleClass="dialog-combo"
+                          maxWidth="Infinity" promptText="Выберите читателя"/>
+            </VBox>
+
+            <VBox spacing="4">
+                <Label text="Вернуть до *" styleClass="field-label"/>
+                <DatePicker fx:id="dueDatePicker" styleClass="dialog-field"
+                            maxWidth="Infinity"/>
+            </VBox>
+
+            <Label fx:id="errorLabel" text="" styleClass="error-label"
+                   visible="false" managed="false"/>
+
+        </VBox>
+    </content>
+
+    <buttonTypes>
+        <ButtonType text="Выдать" buttonData="OK_DONE"/>
+        <ButtonType text="Отмена" buttonData="CANCEL_CLOSE"/>
+    </buttonTypes>
+
+</DialogPane>

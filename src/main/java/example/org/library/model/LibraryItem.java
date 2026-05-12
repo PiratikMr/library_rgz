@@ -4,34 +4,46 @@ import java.io.Serializable;
 import java.util.UUID;
 
 /**
- * Модель книги для личной библиотеки.
- * Реализует Serializable для сохранения в файл.
+ * Абстрактный базовый класс для элементов библиотеки.
+ * Демонстрирует абстрактный класс, наследование и полиморфизм.
+ * От него наследуются PrintedBook и AudioBook.
  */
-public class Book implements Serializable {
+public abstract class LibraryItem implements Serializable {
 
     private static final long serialVersionUID = 1L;
 
     private String id;
     private String title;
-    private String author;
+    private Author author;
     private Genre genre;
     private int year;
     private BookStatus status;
-    private String borrower; // кому выдана (null если в библиотеке)
-    private String notes;    // примечания
+    private String notes;
 
-    public Book() {
+    public LibraryItem() {
         this.id = UUID.randomUUID().toString();
         this.status = BookStatus.IN_LIBRARY;
     }
 
-    public Book(String title, String author, Genre genre, int year) {
+    public LibraryItem(String title, Author author, Genre genre, int year) {
         this();
         this.title = title;
         this.author = author;
         this.genre = genre;
         this.year = year;
     }
+
+    /**
+     * Возвращает тип элемента библиотеки (полиморфный метод).
+     * Каждый наследник возвращает своё значение.
+     */
+    public abstract String getItemType();
+
+    /**
+     * Возвращает специфические детали элемента (полиморфный метод).
+     * Для PrintedBook — количество страниц, для AudioBook — длительность и чтеца.
+     */
+    public abstract String getDetails();
 
     // --- Геттеры и сеттеры ---
 
@@ -51,11 +63,11 @@ public class Book implements Serializable {
         this.title = title;
     }
 
-    public String getAuthor() {
+    public Author getAuthor() {
         return author;
     }
 
-    public void setAuthor(String author) {
+    public void setAuthor(Author author) {
         this.author = author;
     }
 
@@ -83,14 +95,6 @@ public class Book implements Serializable {
         this.status = status;
     }
 
-    public String getBorrower() {
-        return borrower;
-    }
-
-    public void setBorrower(String borrower) {
-        this.borrower = borrower;
-    }
-
     public String getNotes() {
         return notes;
     }
@@ -99,8 +103,15 @@ public class Book implements Serializable {
         this.notes = notes;
     }
 
+    /**
+     * Возвращает имя автора или "Неизвестный" если автор не указан.
+     */
+    public String getAuthorName() {
+        return author != null ? author.getFullName() : "Неизвестный";
+    }
+
     @Override
     public String toString() {
-        return title + " — " + author + " (" + year + ")";
+        return title + " — " + getAuthorName() + " (" + year + ")";
     }
 }

@@ -20,7 +20,7 @@ public class LibraryApp extends Application {
                 getClass().getResource("/example/org/library/view/main-view.fxml"));
         Parent root = fxmlLoader.load();
 
-        Scene scene = new Scene(root, 960, 640);
+        Scene scene = new Scene(root, 1020, 680);
         scene.getStylesheets().add(
                 getClass().getResource("/example/org/library/style.css").toExternalForm());
 
@@ -29,8 +29,8 @@ public class LibraryApp extends Application {
         controller.setupHotkeys(scene);
 
         stage.setTitle("Личная Библиотека");
-        stage.setMinWidth(700);
-        stage.setMinHeight(450);
+        stage.setMinWidth(800);
+        stage.setMinHeight(500);
         stage.setScene(scene);
         stage.show();
     }
